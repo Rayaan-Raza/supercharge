@@ -1,15 +1,19 @@
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+from flask_cors import CORS
+from groq import Groq
 import os
 import hashlib
-import time
+
+# Load .env file for local development
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for local development
 
-# Configure Gemini
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Configure Groq
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Upstash Redis configuration
 UPSTASH_REDIS_REST_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
@@ -23,24 +27,9 @@ RATE_LIMIT_WINDOW_SECONDS = 12 * 60 * 60  # 12 hours
 # META-PROMPT TEMPLATES (The Secret Sauce)
 # ============================================================================
 
-EVALUATION_PROMPT = '''🔁 Prompt Evaluation Chain 2.0
-You are a **senior prompt engineer** participating in the **Prompt Evaluation Chain**. Your task is to **analyze and score a given prompt** following the detailed rubric below.
+EVALUATION_SYSTEM_PROMPT = '''You are a **senior prompt engineer** participating in the **Prompt Evaluation Chain**. Your task is to analyze and score prompts using a 35-criteria rubric.
 
-## 🎯 Evaluation Instructions
-
-1. **Review the prompt** provided inside triple backticks.
-2. **Evaluate the prompt** using the **35-criteria rubric** below.
-3. For **each criterion**: Assign a **score** from 1 (Poor) to 5 (Excellent), identify **one clear strength**, suggest **one specific improvement**, and provide a **brief rationale** (1–2 sentences).
-4. **Calculate and report** the total score out of 175.
-5. **Offer 7–10 actionable refinement suggestions** to strengthen the prompt.
-
-## ⚡ Quick Mode (Use for shorter prompts)
-- Group similar criteria
-- Write condensed strengths/improvements (2–3 words)
-- Use simpler total scoring estimate
-
-## 📊 Evaluation Criteria Rubric
-
+## Evaluation Criteria (Score 1-5 each):
 1. Clarity & Specificity  
 2. Context / Background Provided  
 3. Explicit Task Definition
@@ -77,49 +66,24 @@ You are a **senior prompt engineer** participating in the **Prompt Evaluation Ch
 34. Output Risk Categorization
 35. Self-Repair Loops
 
-## 📥 Prompt to Evaluate
+Provide a concise evaluation with:
+- Total score out of 175
+- Top 3 strengths
+- Top 5-7 actionable refinement suggestions'''
 
-```
-{user_prompt}
-```
+REFINEMENT_SYSTEM_PROMPT = '''You are a **senior prompt engineer** in the **Prompt Refinement Chain**. Your task is to transform a raw prompt into an elite, AI-optimized instruction.
 
-Provide a concise evaluation with total score and top 7-10 refinement suggestions.'''
+## Apply these enhancements:
+1. Assign a highly specific role/persona if missing
+2. Convert vague tasks into specific, actionable sub-tasks
+3. Define explicit output format (Markdown, Table, Code Block, etc.)
+4. Add "Anti-Hallucination" guardrails (e.g., "If you don't know, say so")
+5. Include step-by-step reasoning encouragement where helpful
+6. Eliminate ambiguity and redundancy
+7. Strengthen structure and instructional flow
 
-REFINEMENT_PROMPT = '''🔁 Prompt Refinement Chain 2.0
-You are a **senior prompt engineer** participating in the **Prompt Refinement Chain**. Your task is to **revise a prompt** based on the evaluation insights, ensuring the new version is clearer, more effective, and aligned with best practices.
-
-## 🔄 Refinement Instructions
-
-1. **Apply relevant improvements**, including:
-   - Enhancing clarity, precision, and conciseness
-   - Eliminating ambiguity, redundancy, or contradictions
-   - Strengthening structure, formatting, instructional flow
-   - Adding persona, output format, and anti-hallucination guardrails
-
-2. **Preserve throughout your revision**:
-   - The original **purpose** and **functional objectives**
-   - Logical, **numbered instructional structure** where appropriate
-
-3. **Apply these enhancements automatically**:
-   - Assign a highly specific role/persona if missing
-   - Convert vague tasks into specific, actionable sub-tasks
-   - Define explicit output format (Markdown, Table, Code Block, etc.)
-   - Add "Anti-Hallucination" guardrails (e.g., "If you don't know, say so")
-   - Include step-by-step reasoning encouragement where helpful
-
-## 📤 Original Prompt
-
-```
-{user_prompt}
-```
-
-## 📊 Evaluation Insights
-
-{evaluation}
-
-## 🛠️ Output Format
-
-Provide ONLY the refined prompt in clean, ready-to-use format. Do not include explanations or meta-commentary. The refined prompt should be self-contained and immediately usable.'''
+## Output Format:
+Provide ONLY the refined prompt in clean, ready-to-use format. No explanations or meta-commentary. The refined prompt should be self-contained and immediately usable.'''
 
 
 def get_client_ip():
@@ -182,27 +146,46 @@ def check_rate_limit(ip_hash):
         return True, RATE_LIMIT_MAX_REQUESTS
 
 
-def run_meta_prompt_engine(user_prompt):
-    """Run the two-phase Meta-Prompt engine."""
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not configured")
-    
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
-    
-    # Phase 1: Evaluation
-    eval_prompt = EVALUATION_PROMPT.format(user_prompt=user_prompt)
-    eval_response = model.generate_content(eval_prompt)
-    evaluation = eval_response.text
-    
-    # Phase 2: Refinement
-    refine_prompt = REFINEMENT_PROMPT.format(
-        user_prompt=user_prompt,
-        evaluation=evaluation
+def call_groq(system_message, user_message):
+    """Call Groq API with Llama 3.3 70B."""
+    completion = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message}
+        ],
+        temperature=0.5,
+        max_tokens=2048,
     )
-    refine_response = model.generate_content(refine_prompt)
-    refined_prompt = refine_response.text
+    return completion.choices[0].message.content
+
+
+def run_meta_prompt_engine(user_prompt):
+    """Run the two-phase Meta-Prompt engine using Groq."""
+    if not groq_client:
+        raise ValueError("GROQ_API_KEY not configured")
     
-    return evaluation, refined_prompt
+    try:
+        # Phase 1: Evaluation
+        print("Starting Phase 1: Evaluation...")
+        evaluation = call_groq(
+            EVALUATION_SYSTEM_PROMPT,
+            f"Evaluate this prompt:\n\n```\n{user_prompt}\n```"
+        )
+        print("Phase 1 complete!")
+        
+        # Phase 2: Refinement
+        print("Starting Phase 2: Refinement...")
+        refined_prompt = call_groq(
+            REFINEMENT_SYSTEM_PROMPT,
+            f"Original Prompt:\n```\n{user_prompt}\n```\n\nEvaluation Insights:\n{evaluation}\n\nCreate the refined prompt now."
+        )
+        print("Phase 2 complete!")
+        
+        return evaluation, refined_prompt
+    except Exception as e:
+        print(f"Groq API error: {e}")
+        raise ValueError(f"AI processing failed: {str(e)}")
 
 
 @app.route('/api/supercharge', methods=['POST'])
@@ -220,23 +203,12 @@ def supercharge():
         if len(user_prompt) > 10000:
             return jsonify({'error': 'Prompt too long (max 10,000 characters)'}), 400
         
-        # Rate limiting
-        client_ip = get_client_ip()
-        ip_hash = hash_ip(client_ip)
-        allowed, remaining = check_rate_limit(ip_hash)
-        
-        if not allowed:
-            return jsonify({
-                'error': 'Rate limit exceeded. Please try again later (5 requests per 12 hours).'
-            }), 429
-        
         # Run the Meta-Prompt engine
         evaluation, refined_prompt = run_meta_prompt_engine(user_prompt)
         
         return jsonify({
             'evaluation': evaluation,
-            'refined_prompt': refined_prompt,
-            'remaining_requests': remaining
+            'refined_prompt': refined_prompt
         })
         
     except ValueError as e:
@@ -251,7 +223,7 @@ def health():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'gemini_configured': bool(GEMINI_API_KEY),
+        'groq_configured': bool(GROQ_API_KEY),
         'redis_configured': bool(UPSTASH_REDIS_REST_URL)
     })
 

@@ -159,12 +159,12 @@ function App() {
                     {phase && !isLoading && (
                         <div className="flex justify-center animate-fade-in">
                             <div className={`phase-indicator ${phase === 'evaluating' ? 'phase-evaluating' :
-                                    phase === 'refining' ? 'phase-refining' :
-                                        'phase-complete'
+                                phase === 'refining' ? 'phase-refining' :
+                                    'phase-complete'
                                 }`}>
-                                {phase === 'evaluating' && '🔍 Evaluating across 35 criteria...'}
-                                {phase === 'refining' && '✨ Applying refinements...'}
-                                {phase === 'complete' && '🎯 Transformation complete!'}
+                                {phase === 'evaluating' && 'Evaluating across 35 criteria...'}
+                                {phase === 'refining' && 'Applying refinements...'}
+                                {phase === 'complete' && 'Transformation complete!'}
                             </div>
                         </div>
                     )}
@@ -176,7 +176,7 @@ function App() {
                             {evaluation && (
                                 <details className="glass-card p-6">
                                     <summary className="cursor-pointer text-white/80 font-medium flex items-center gap-2">
-                                        <span className="text-xs font-mono tracking-widest uppercase text-white/50">📊 Evaluation Report</span>
+                                        <span className="text-xs font-mono tracking-widest uppercase text-white/50">Evaluation Report</span>
                                         <span className="text-xs text-white/30">(click to expand)</span>
                                     </summary>
                                     <div className="mt-4 pt-4 border-t border-white/10 output-area text-white/70 text-sm max-h-96 overflow-y-auto">
@@ -219,7 +219,7 @@ function App() {
             {/* Toast Notification */}
             {showToast && (
                 <div className="toast">
-                    ✓ Copied to clipboard!
+                    Copied to clipboard!
                 </div>
             )}
         </div>
