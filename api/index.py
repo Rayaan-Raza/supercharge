@@ -20,8 +20,8 @@ UPSTASH_REDIS_REST_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
 UPSTASH_REDIS_REST_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 
 # Rate limit settings
-RATE_LIMIT_MAX_REQUESTS = 5
-RATE_LIMIT_WINDOW_SECONDS = 12 * 60 * 60  # 12 hours
+RATE_LIMIT_MAX_REQUESTS = 6
+RATE_LIMIT_WINDOW_SECONDS = 6 * 60 * 60  # 6 hours
 
 # ============================================================================
 # META-PROMPT TEMPLATES (The Secret Sauce)
@@ -203,12 +203,24 @@ def supercharge():
         if len(user_prompt) > 10000:
             return jsonify({'error': 'Prompt too long (max 10,000 characters)'}), 400
         
+        # Rate limiting
+        client_ip = get_client_ip()
+        ip_hash = hash_ip(client_ip)
+        allowed, remaining = check_rate_limit(ip_hash)
+        
+        if not allowed:
+            return jsonify({
+                'error': 'Rate limit exceeded. You have used all 6 prompts. Please try again in a few hours.',
+                'remaining': 0
+            }), 429
+        
         # Run the Meta-Prompt engine
         evaluation, refined_prompt = run_meta_prompt_engine(user_prompt)
         
         return jsonify({
             'evaluation': evaluation,
-            'refined_prompt': refined_prompt
+            'refined_prompt': refined_prompt,
+            'remaining': remaining
         })
         
     except ValueError as e:
@@ -216,6 +228,49 @@ def supercharge():
     except Exception as e:
         print(f"Error in supercharge: {e}")
         return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+
+
+@app.route('/api/status', methods=['GET'])
+def status():
+    """Get rate limit status without consuming a request."""
+    client_ip = get_client_ip()
+    ip_hash = hash_ip(client_ip)
+    
+    if not UPSTASH_REDIS_REST_URL or not UPSTASH_REDIS_REST_TOKEN:
+        # No rate limiting configured
+        return jsonify({
+            'remaining': RATE_LIMIT_MAX_REQUESTS,
+            'limit': RATE_LIMIT_MAX_REQUESTS,
+            'limited': False
+        })
+    
+    import urllib.request
+    import json
+    
+    key = f"promptelevate:ratelimit:{ip_hash}"
+    
+    try:
+        url = f"{UPSTASH_REDIS_REST_URL}/get/{key}"
+        req = urllib.request.Request(url)
+        req.add_header('Authorization', f'Bearer {UPSTASH_REDIS_REST_TOKEN}')
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read())
+            current_count = int(data.get('result') or 0)
+        
+        remaining = max(0, RATE_LIMIT_MAX_REQUESTS - current_count)
+        return jsonify({
+            'remaining': remaining,
+            'limit': RATE_LIMIT_MAX_REQUESTS,
+            'limited': remaining == 0
+        })
+    except Exception as e:
+        print(f"Status check error: {e}")
+        return jsonify({
+            'remaining': RATE_LIMIT_MAX_REQUESTS,
+            'limit': RATE_LIMIT_MAX_REQUESTS,
+            'limited': False
+        })
 
 
 @app.route('/api/health', methods=['GET'])

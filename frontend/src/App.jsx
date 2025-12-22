@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Zap, Sparkles, AlertCircle, RotateCcw } from 'lucide-react'
 import PromptInput from './components/PromptInput'
 import PromptOutput from './components/PromptOutput'
@@ -15,6 +15,24 @@ function App() {
     const [error, setError] = useState(null)
     const [copied, setCopied] = useState(false)
     const [showToast, setShowToast] = useState(false)
+    const [remainingPrompts, setRemainingPrompts] = useState(null)
+
+    // Fetch remaining prompts on load
+    useEffect(() => {
+        fetchStatus()
+    }, [])
+
+    const fetchStatus = async () => {
+        try {
+            const response = await fetch('/api/status')
+            if (response.ok) {
+                const data = await response.json()
+                setRemainingPrompts(data.remaining)
+            }
+        } catch (err) {
+            console.log('Could not fetch status')
+        }
+    }
 
     const handleSupercharge = async () => {
         if (!inputPrompt.trim()) return
@@ -34,14 +52,20 @@ function App() {
                 body: JSON.stringify({ prompt: inputPrompt }),
             })
 
+            const data = await response.json()
+
             if (!response.ok) {
                 if (response.status === 429) {
-                    throw new Error('Rate limit exceeded. Please try again later (5 requests per 12 hours).')
+                    setRemainingPrompts(0)
+                    throw new Error(data.error || 'Rate limit exceeded. You have used all 6 prompts. Please try again in a few hours.')
                 }
-                throw new Error('Failed to process prompt. Please try again.')
+                throw new Error(data.error || 'Failed to process prompt. Please try again.')
             }
 
-            const data = await response.json()
+            // Update remaining count from response
+            if (data.remaining !== undefined) {
+                setRemainingPrompts(data.remaining)
+            }
 
             setEvaluation(data.evaluation || '')
             setPhase('refining')
@@ -112,6 +136,23 @@ function App() {
                         </p>
                     </div>
 
+                    {/* Remaining Prompts Counter */}
+                    {remainingPrompts !== null && (
+                        <div className="flex justify-center">
+                            <div className={`glass-card px-4 py-2 flex items-center gap-2 text-sm ${remainingPrompts === 0 ? 'border-red-500/30' : 'border-electric-blue/20'
+                                }`}>
+                                <div className={`w-2 h-2 rounded-full ${remainingPrompts === 0 ? 'bg-red-500' :
+                                        remainingPrompts <= 2 ? 'bg-yellow-500' : 'bg-green-500'
+                                    }`} />
+                                <span className="text-white/60">
+                                    <span className={`font-bold ${remainingPrompts === 0 ? 'text-red-400' : 'text-white'
+                                        }`}>{remainingPrompts}</span>
+                                    <span className="text-white/40"> / 6 prompts remaining</span>
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Input Section */}
                     <PromptInput
                         value={inputPrompt}
@@ -124,7 +165,7 @@ function App() {
                     <div className="flex justify-center">
                         <button
                             onClick={handleSupercharge}
-                            disabled={isLoading || !inputPrompt.trim()}
+                            disabled={isLoading || !inputPrompt.trim() || remainingPrompts === 0}
                             className="btn-primary flex items-center gap-3 text-lg px-10 py-4"
                         >
                             {isLoading ? (
@@ -159,8 +200,8 @@ function App() {
                     {phase && !isLoading && (
                         <div className="flex justify-center animate-fade-in">
                             <div className={`phase-indicator ${phase === 'evaluating' ? 'phase-evaluating' :
-                                phase === 'refining' ? 'phase-refining' :
-                                    'phase-complete'
+                                    phase === 'refining' ? 'phase-refining' :
+                                        'phase-complete'
                                 }`}>
                                 {phase === 'evaluating' && 'Evaluating across 35 criteria...'}
                                 {phase === 'refining' && 'Applying refinements...'}
@@ -212,7 +253,7 @@ function App() {
             {/* Footer */}
             <footer className="relative z-10 border-t border-white/5 mt-20">
                 <div className="max-w-5xl mx-auto px-6 py-8 text-center text-white/25 text-sm">
-                    <p className="font-mono tracking-wide">No sign-up required • 5 requests per 12 hours per IP</p>
+                    <p className="font-mono tracking-wide">No sign-up required - 6 prompts every 6 hours</p>
                 </div>
             </footer>
 
