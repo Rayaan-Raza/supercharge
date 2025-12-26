@@ -57,7 +57,7 @@ function App() {
             if (!response.ok) {
                 if (response.status === 429) {
                     setRemainingPrompts(0)
-                    throw new Error(data.error || 'Rate limit exceeded. You have used all 6 prompts. Please try again in a few hours.')
+                    throw new Error(data.error || 'Rate limit exceeded. You have used all 30 prompts. Please try again in an hour.')
                 }
                 throw new Error(data.error || 'Failed to process prompt. Please try again.')
             }
@@ -142,12 +142,12 @@ function App() {
                             <div className={`glass-card px-4 py-2 flex items-center gap-2 text-sm ${remainingPrompts === 0 ? 'border-red-500/30' : 'border-electric-blue/20'
                                 }`}>
                                 <div className={`w-2 h-2 rounded-full ${remainingPrompts === 0 ? 'bg-red-500' :
-                                        remainingPrompts <= 2 ? 'bg-yellow-500' : 'bg-green-500'
+                                    remainingPrompts <= 2 ? 'bg-yellow-500' : 'bg-green-500'
                                     }`} />
                                 <span className="text-white/60">
                                     <span className={`font-bold ${remainingPrompts === 0 ? 'text-red-400' : 'text-white'
                                         }`}>{remainingPrompts}</span>
-                                    <span className="text-white/40"> / 6 prompts remaining</span>
+                                    <span className="text-white/40"> / 30 prompts remaining this hour</span>
                                 </span>
                             </div>
                         </div>
@@ -200,8 +200,8 @@ function App() {
                     {phase && !isLoading && (
                         <div className="flex justify-center animate-fade-in">
                             <div className={`phase-indicator ${phase === 'evaluating' ? 'phase-evaluating' :
-                                    phase === 'refining' ? 'phase-refining' :
-                                        'phase-complete'
+                                phase === 'refining' ? 'phase-refining' :
+                                    'phase-complete'
                                 }`}>
                                 {phase === 'evaluating' && 'Evaluating across 35 criteria...'}
                                 {phase === 'refining' && 'Applying refinements...'}
@@ -253,7 +253,7 @@ function App() {
             {/* Footer */}
             <footer className="relative z-10 border-t border-white/5 mt-20">
                 <div className="max-w-5xl mx-auto px-6 py-8 text-center text-white/25 text-sm">
-                    <p className="font-mono tracking-wide">No sign-up required - 6 prompts every 6 hours</p>
+                    <p className="font-mono tracking-wide">No sign-up required - 30 prompts every hour</p>
                 </div>
             </footer>
 

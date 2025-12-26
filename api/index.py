@@ -20,8 +20,8 @@ UPSTASH_REDIS_REST_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
 UPSTASH_REDIS_REST_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 
 # Rate limit settings
-RATE_LIMIT_MAX_REQUESTS = 6
-RATE_LIMIT_WINDOW_SECONDS = 6 * 60 * 60  # 6 hours
+RATE_LIMIT_MAX_REQUESTS = 30
+RATE_LIMIT_WINDOW_SECONDS = 60 * 60  # 1 hour
 
 # ============================================================================
 # META-PROMPT TEMPLATES (The Secret Sauce)
@@ -210,7 +210,7 @@ def supercharge():
         
         if not allowed:
             return jsonify({
-                'error': 'Rate limit exceeded. You have used all 6 prompts. Please try again in a few hours.',
+                'error': 'Rate limit exceeded. You have used all 30 prompts. Please try again in an hour.',
                 'remaining': 0
             }), 429
         
